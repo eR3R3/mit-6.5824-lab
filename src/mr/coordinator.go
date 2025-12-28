@@ -32,24 +32,19 @@ const (
 	Completed  Status = "completed"
 )
 
+// Task RPC要传的field要大写首字母
 type Task struct {
 	FileName  string
-	nReduce   int
-	status    Status
-	taskType  TaskType
+	NReduce   int
+	Status    Status
+	TaskType  TaskType
 	StartTime time.Time
 	TaskId    TaskId
 }
 
-func dummyTask() Task {
-	return Task{
-		TaskId: -1,
-	}
-}
-
 func NewTask(taskType TaskType) Task {
 	return Task{
-		taskType: taskType,
+		TaskType: taskType,
 	}
 }
 
@@ -64,15 +59,19 @@ type Coordinator struct {
 }
 
 func (c *Coordinator) getTaskByTaskId(id TaskId) *Task {
-	for _, task := range c.tasks {
+	for i, task := range c.tasks {
 		if task.TaskId == id {
-			return &task
+			// 不能直接给函数内的临时变量的指针
+			return &c.tasks[i]
 		}
 	}
 	return nil
 }
 
 func (c *Coordinator) GetTask(args GetTaskArgs, reply *GetTaskReply) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.checkTimeout()
 	// 检查是否done
 	mapStatus, mapTask := c.getMapTask()
@@ -80,7 +79,7 @@ func (c *Coordinator) GetTask(args GetTaskArgs, reply *GetTaskReply) error {
 	if mapStatus == Completed && reduceStatus == Completed {
 		*reply = GetTaskReply{
 			taskInfo: Task{
-				taskType: FinishedTask,
+				TaskType: FinishedTask,
 			},
 		}
 		return nil
@@ -88,35 +87,39 @@ func (c *Coordinator) GetTask(args GetTaskArgs, reply *GetTaskReply) error {
 
 	// 如果map没执行完分配map
 	if mapStatus == Idle {
-		mapTask.status = InProgress
+		mapTask.Status = InProgress
 		mapTask.StartTime = time.Now()
 		*reply = GetTaskReply{
-			taskInfo: mapTask,
+			taskInfo: *mapTask,
 		}
+		return nil
 	}
 	// 如果还有map in progress让他等一下
 	if mapStatus == InProgress {
 		*reply = GetTaskReply{
 			taskInfo: Task{
-				taskType: WaitTask,
+				TaskType: WaitTask,
 			},
 		}
+		return nil
 	}
 	// map执行完了分配reduce
 	if mapStatus == Completed && reduceStatus == Idle {
-		reduceTask.status = InProgress
+		reduceTask.Status = InProgress
 		reduceTask.StartTime = time.Now()
 		*reply = GetTaskReply{
-			taskInfo: reduceTask,
+			taskInfo: *reduceTask,
 		}
+		return nil
 	}
 	// 如果还有reduce in progress让他等一下
 	if mapStatus == Completed && reduceStatus == InProgress {
 		*reply = GetTaskReply{
 			taskInfo: Task{
-				taskType: WaitTask,
+				TaskType: WaitTask,
 			},
 		}
+		return nil
 	}
 
 	return nil
@@ -125,10 +128,10 @@ func (c *Coordinator) GetTask(args GetTaskArgs, reply *GetTaskReply) error {
 // checkTimeout 检查是否有超时任务加回任务列表
 func (c *Coordinator) checkTimeout() {
 	currTime := time.Now()
-	for _, task := range c.tasks {
+	for i, task := range c.tasks {
 		diff := currTime.Sub(task.StartTime)
-		if diff > 10*time.Second {
-			task.status = Idle
+		if diff > 10*time.Second && task.Status == InProgress {
+			c.tasks[i].Status = Idle
 		}
 	}
 }
@@ -137,53 +140,56 @@ func (c *Coordinator) checkTimeout() {
 // 有idle返回idle
 // 没有idle返回in progress
 // 没有in progress返回completed代表全部完成
-func (c *Coordinator) getMapTask() (Status, Task) {
-	progress := make([]Task, 0)
+func (c *Coordinator) getMapTask() (Status, *Task) {
+	progress := make([]*Task, 0)
 	// check有没有idle的task
-	for _, task := range c.tasks {
-		if task.taskType == MapTask {
-			if task.status == Idle {
-				return Idle, task
-			} else if task.status == InProgress {
-				progress = append(progress, task)
+	for i, task := range c.tasks {
+		if task.TaskType == MapTask {
+			if task.Status == Idle {
+				return Idle, &c.tasks[i]
+			} else if task.Status == InProgress {
+				progress = append(progress, &c.tasks[i])
 			}
 		}
 	}
 
 	if len(progress) == 0 {
-		return Completed, dummyTask()
+		return Completed, nil
 	} else {
 		return InProgress, progress[0]
 	}
 }
 
-func (c *Coordinator) getReduceTask() (Status, Task) {
-	progress := make([]Task, 0)
+func (c *Coordinator) getReduceTask() (Status, *Task) {
+	progress := make([]*Task, 0)
 	// check有没有idle的task
-	for _, task := range c.tasks {
-		if task.taskType == ReduceTask {
-			if task.status == Idle {
-				return Idle, task
-			} else if task.status == InProgress {
-				progress = append(progress, task)
+	for i, task := range c.tasks {
+		if task.TaskType == ReduceTask {
+			if task.Status == Idle {
+				return Idle, &c.tasks[i]
+			} else if task.Status == InProgress {
+				progress = append(progress, &c.tasks[i])
 			}
 		}
 	}
 
 	if len(progress) == 0 {
-		return Completed, dummyTask()
+		return Completed, nil
 	} else {
 		return InProgress, progress[0]
 	}
 }
 
 func (c *Coordinator) ReportTask(args ReportTaskArgs, reply *ReportTaskReply) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	// 更新状态
 	task := c.getTaskByTaskId(args.taskId)
 	if task == nil {
 		log.Fatalf("no task found by taskId")
 	}
-	task.status = Completed
+	task.Status = Completed
 	*reply = ReportTaskReply{ok: true}
 	return nil
 }
@@ -194,9 +200,9 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	for i, file := range files {
 		currTask := Task{
 			FileName: file,
-			nReduce:  nReduce,
-			status:   Idle,
-			taskType: MapTask,
+			NReduce:  nReduce,
+			Status:   Idle,
+			TaskType: MapTask,
 			TaskId:   TaskId(i),
 		}
 		tasks = append(tasks, currTask)
@@ -205,9 +211,9 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	// add reduce tasks
 	for i := range nReduce {
 		currTask := Task{
-			status:   Idle,
-			nReduce:  nReduce,
-			taskType: ReduceTask,
+			Status:   Idle,
+			NReduce:  nReduce,
+			TaskType: ReduceTask,
 			TaskId:   TaskId(len(files) + i),
 		}
 		tasks = append(tasks, currTask)

@@ -8,11 +8,13 @@ type GetTaskArgs struct {
 }
 
 type GetTaskReply struct {
-	taskInfo Task
+	TaskInfo  Task
+	BucketNum int
+	MapNum    int
 }
 
 type ReportTaskArgs struct {
-	taskId   TaskId
+	TaskId   TaskId
 	WorkerId int
 }
 

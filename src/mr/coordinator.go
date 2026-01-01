@@ -78,7 +78,7 @@ func (c *Coordinator) GetTask(args GetTaskArgs, reply *GetTaskReply) error {
 	reduceStatus, reduceTask := c.getReduceTask()
 	if mapStatus == Completed && reduceStatus == Completed {
 		*reply = GetTaskReply{
-			taskInfo: Task{
+			TaskInfo: Task{
 				TaskType: FinishedTask,
 			},
 		}
@@ -90,14 +90,15 @@ func (c *Coordinator) GetTask(args GetTaskArgs, reply *GetTaskReply) error {
 		mapTask.Status = InProgress
 		mapTask.StartTime = time.Now()
 		*reply = GetTaskReply{
-			taskInfo: *mapTask,
+			TaskInfo: *mapTask,
 		}
 		return nil
 	}
+
 	// 如果还有map in progress让他等一下
 	if mapStatus == InProgress {
 		*reply = GetTaskReply{
-			taskInfo: Task{
+			TaskInfo: Task{
 				TaskType: WaitTask,
 			},
 		}
@@ -108,14 +109,17 @@ func (c *Coordinator) GetTask(args GetTaskArgs, reply *GetTaskReply) error {
 		reduceTask.Status = InProgress
 		reduceTask.StartTime = time.Now()
 		*reply = GetTaskReply{
-			taskInfo: *reduceTask,
+			TaskInfo:  *reduceTask,
+			BucketNum: c.reduceCount,
+			MapNum:    len(c.files),
 		}
+		c.reduceCount++
 		return nil
 	}
 	// 如果还有reduce in progress让他等一下
 	if mapStatus == Completed && reduceStatus == InProgress {
 		*reply = GetTaskReply{
-			taskInfo: Task{
+			TaskInfo: Task{
 				TaskType: WaitTask,
 			},
 		}
@@ -185,7 +189,7 @@ func (c *Coordinator) ReportTask(args ReportTaskArgs, reply *ReportTaskReply) er
 	defer c.mu.Unlock()
 
 	// 更新状态
-	task := c.getTaskByTaskId(args.taskId)
+	task := c.getTaskByTaskId(args.TaskId)
 	if task == nil {
 		log.Fatalf("no task found by taskId")
 	}

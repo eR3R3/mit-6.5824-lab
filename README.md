@@ -1,2 +1,2 @@
 # lab 2
-<img width="746" height="245" alt="image" src="https://github.com/user-attachments/assets/b81f08e3-ee39-4842-b0db-b4ba4b309d42" />
+<img width="673" height="186" alt="image" src="https://github.com/user-attachments/assets/1f7eb499-5ed1-41dc-8651-fa2b0fb8bdbf" />

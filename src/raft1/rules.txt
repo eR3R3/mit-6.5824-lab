@@ -1,0 +1,108 @@
+server {
+    // All
+    currentTerm
+    log[]
+    commitIndex // commit到的log index
+    lastApplied //给kv store的log index，可能小于commitIndex
+
+    // Follower
+    votedFor
+
+    // Leader
+    nextIndex[] // 要给每个server发的下一个index
+    matchIndex[] // 确认的每个server的最高log
+
+}
+
+RequestVote:
+legit = CheckTerm()
+if legit == false:
+    return false
+else:
+    renew term
+
+// 我vote过了
+if self.voteFor != -1:
+    // vote给你过
+    - if self.voteFor == Request.CandidateId:
+        return true
+    // 不是vote给你的
+    - else:
+        return false
+
+// 我还没开始vote，并且term满足要求
+if len(log) > Request.LogIndex:
+    return false
+
+self.votedFor = Request.CandidateId
+
+return true
+
+
+Send RequestVote
+CheckTerm()
+
+
+
+AppendEntries:
+legit = CheckTerm()
+if legit == false:
+    return false
+
+if empty:
+    resetTimer()
+
+
+Send AppendEntries
+CheckTerm()
+
+
+
+
+
+
+PreRequestVote()
+    term++
+    vote for itself
+    reset timer
+    role == candidate
+
+RequestVoteBroadCast()
+    for each server
+        goroutine CallRequestVote()
+
+CallRequestVote()
+    if reply.term match:
+        count++
+
+
+All Servers:
+- while lastApplied < commitIndex:
+    send log[lastApplied + 1] to KV storage
+
+func CheckTerm
+- if Any RPC Request.Term > currTerm:
+    - role: Follower
+    - lock update currTerm
+
+- BackGround Cycle:
+    - if Leader:
+        SendAppendEntries
+    - else:
+        if checkTime() == false:
+            PreRequestVote()
+            RequestVoteBroadCast()
+
+
+Follower:
+- if RequestVote:
+    Receive RequestVote
+
+- if AppendEntries:
+    - if empty(HeartBeat):
+        resetTimeout()
+
+
+
+
+
